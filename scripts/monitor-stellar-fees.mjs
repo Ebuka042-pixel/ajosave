@@ -116,7 +116,7 @@ export async function runFeeMonitor(env = process.env, fetchImpl = fetch, now = 
       `UTC period: ${startIso} to ${endIso}`,
       `Fees charged: ${formatStroops(totalFees)} XLM across ${transactions.length} account transactions`,
       `Daily threshold: ${formatStroops(threshold)} XLM`,
-    ].join("\\n");
+    ].join("\n");
     await postSlackAlert(slackWebhook, message, fetchImpl);
     console.log(`Fee threshold exceeded: ${formatStroops(totalFees)} XLM > ${formatStroops(threshold)} XLM. Slack alert sent.`);
     return { alerted: true, totalFees, threshold, transactionCount: transactions.length };
