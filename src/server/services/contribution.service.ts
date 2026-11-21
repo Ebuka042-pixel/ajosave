@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import { query } from "@/lib/db";
 import { randomUUID } from "crypto";
 import type { Contribution } from "@/types";

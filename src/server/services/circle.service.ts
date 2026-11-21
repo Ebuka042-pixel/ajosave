@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import { randomUUID } from "crypto";
 import type { Circle, Member, CircleStatus, CircleFilters } from "@/types";
 import type { CreateCircleInput } from "@/types/schemas";
@@ -232,7 +233,7 @@ export async function listCircles(filters: CircleFilters = {}): Promise<Circle[]
       updatedAt: row.updated_at,
     }));
   } catch {
-    console.warn("[circle.service] DB unavailable, falling back to in-memory filter");
+    logger.warn("[circle.service] DB unavailable, falling back to in-memory filter");
   }
 
   // ── In-memory fallback ──────────────────────────────────────────────────
@@ -383,7 +384,7 @@ export async function joinCircle(
 
     // For infrastructure errors (DB unavailable etc.) fall through to the
     // in-memory store so the service degrades gracefully during development.
-    console.warn(
+    logger.warn(
       "[circle.service] DB transaction failed, falling back to in-memory store:",
       err instanceof Error ? err.message : err
     );
@@ -494,7 +495,7 @@ export async function leaveCircle(circleId: string, userId: string): Promise<voi
 
     if (isDomainError) throw err;
 
-    console.warn(
+    logger.warn(
       "[circle.service] DB transaction failed, falling back to in-memory store:",
       err instanceof Error ? err.message : err
     );
@@ -687,7 +688,7 @@ export async function deleteCircle(circleId: string, requesterId: string): Promi
       err instanceof Error && domainErrors.some((msg) => err.message.startsWith(msg));
     if (isDomainError) throw err;
 
-    console.warn(
+    logger.warn(
       "[circle.service] DB transaction failed, falling back to in-memory store:",
       err instanceof Error ? err.message : err
     );

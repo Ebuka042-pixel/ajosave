@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import { sendUsdcPayment } from "@/lib/stellar";
 import { getCircleById, getMembersByCircle, updateCircleStatus } from "./circle.service";
 import { queueCertificatesForCircle } from "./certificate.service";
@@ -86,7 +87,7 @@ export async function processCyclePayout(
 
       if (existingRow.rowCount !== 0) {
         const row = existingRow.rows[0];
-        console.info(
+        logger.info(
           `[payout.service] Duplicate request — returning existing payout ` +
             `${row.id} for circle ${circleId} cycle ${cycleNumber}`
         );
@@ -103,7 +104,7 @@ export async function processCyclePayout(
     } catch (dbErr) {
       // If the DB check itself fails (e.g. DB unavailable), fall back to the
       // in-memory log so the service remains available in dev.
-      console.warn(
+      logger.warn(
         "[payout.service] DB idempotency check failed, checking in-memory log:",
         dbErr instanceof Error ? dbErr.message : dbErr
       );
@@ -112,7 +113,7 @@ export async function processCyclePayout(
         (p) => p.circleId === circleId && p.cycleNumber === cycleNumber
       );
       if (existingInMemory) {
-        console.info(
+        logger.info(
           `[payout.service] Duplicate request — returning existing in-memory payout ` +
             `${existingInMemory.id} for circle ${circleId} cycle ${cycleNumber}`
         );
@@ -170,7 +171,7 @@ export async function processCyclePayout(
       // The Stellar transfer already happened. Log the error prominently so
       // the ops team can reconcile, but don't re-throw — the caller should
       // treat this as a success since the member was paid.
-      console.error(
+      logger.error(
         `[payout.service] Stellar payment succeeded (txHash: ${txHash}) ` +
           `but DB write failed for circle ${circleId} cycle ${cycleNumber}. ` +
           `Manual reconciliation may be required.`,

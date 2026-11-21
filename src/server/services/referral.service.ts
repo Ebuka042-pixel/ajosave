@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 /**
  * Referral fraud controls service.
  *
@@ -102,7 +103,7 @@ async function logFraudEvent(opts: {
       ]
     );
   } catch (err) {
-    console.error("[referral.service] Failed to write fraud audit log:", err);
+    logger.error("[referral.service] Failed to write fraud audit log:", err);
   }
 }
 
@@ -128,7 +129,7 @@ async function flagSuspiciousPattern(opts: {
       ipAddress: opts.ipAddress ?? undefined,
     });
   } catch (err) {
-    console.error("[referral.service] Failed to write suspicious pattern audit log:", err);
+    logger.error("[referral.service] Failed to write suspicious pattern audit log:", err);
   }
 }
 

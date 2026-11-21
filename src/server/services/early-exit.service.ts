@@ -1,10 +1,13 @@
+import logger from "@/lib/logger";
 import { query, transaction } from "@/lib/db";
 import { randomUUID } from "crypto";
 import { sendUsdcPayment } from "@/lib/stellar";
 import type { EarlyExitRequest } from "@/types";
 
-/** Default penalty: 10% of total confirmed contributions */
-const DEFAULT_PENALTY_PERCENT = 10;
+/** Calculate early-exit penalty as % of remaining (total) contributions. */
+export function calculateEarlyExitPenalty(totalContributedUsdc: number, penaltyPercent: number): number {
+  return (totalContributedUsdc * penaltyPercent) / 100;
+}
 
 const EXIT_SELECT = `
   id, circle_id as "circleId", member_id as "memberId", user_id as "userId",
@@ -50,6 +53,14 @@ export async function requestEarlyExit(
        RETURNING ${EXIT_SELECT}`,
       [randomUUID(), circleId, member.id, userId, penaltyPercent, penaltyUsdc.toFixed(7), refundUsdc.toFixed(7)]
     );
+
+    // Record penalty in penalties table
+    await q(
+      `INSERT INTO penalties (id, circle_id, member_id, cycle_number, amount_usdc, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [randomUUID(), circleId, member.id, 0, penaltyUsdc.toFixed(7)]
+    );
+
     return rows[0];
   });
 }

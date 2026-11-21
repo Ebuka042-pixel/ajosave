@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 /**
  * In-process mutex for serializing Stellar payout operations.
  *
