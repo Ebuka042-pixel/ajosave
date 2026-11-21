@@ -21,6 +21,10 @@ on:
         description: "End date for log deletion (YYYY-MM-DD)"
         required: false
 
+concurrency:
+  group: log-retention
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
