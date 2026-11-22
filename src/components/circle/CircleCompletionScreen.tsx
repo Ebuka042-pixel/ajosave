@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import type { Circle, Member } from "@/types";
 import { getCurrencySymbol, SupportedCurrency } from "@/lib/currency";
+import { useConfetti } from "@/hooks/useConfetti";
 import { format } from "date-fns";
 import styles from "./CircleCompletionScreen.module.css";
 
@@ -10,6 +13,7 @@ interface CircleCompletionScreenProps {
 }
 
 export function CircleCompletionScreen({ circle, members }: CircleCompletionScreenProps) {
+  const canvasRef = useConfetti({ duration: 3000, density: 50 });
   const currencySymbol = getCurrencySymbol(circle.contributionCurrency as SupportedCurrency);
   const totalSaved = circle.contributionFiat * circle.maxMembers * circle.currentCycle;
   const duration = circle.createdAt
@@ -24,7 +28,7 @@ export function CircleCompletionScreen({ circle, members }: CircleCompletionScre
 
   return (
     <div className={styles.wrapper}>
-      <div className={styles.confetti} aria-hidden="true">🎉</div>
+      <canvas ref={canvasRef} style={{ position: "fixed", top: 0, left: 0, pointerEvents: "none" }} aria-hidden="true" />
       <h1 className={styles.heading}>Circle Complete! 🏆</h1>
       <p className={styles.sub}>
         Every member has been paid out. Great job staying committed!
