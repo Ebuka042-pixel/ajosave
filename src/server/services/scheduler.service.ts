@@ -8,6 +8,7 @@ import { getMissedContributions } from "./contribution.service";
 import type { Circle, Member } from "@/types";
 import { addPayoutJob } from "@/lib/queue/payoutQueue";
 import { withCronLock, CronLockError } from "./cron-lock";
+import { applyReputationDecay as _applyReputationDecay } from "./reputation.service";
 
 /**
  * Send payout reminders 24 hours before scheduled payouts
@@ -305,6 +306,25 @@ async function _processDueCycles(): Promise<void> {
       console.log(`[scheduler] Enqueued payout job for circle ${circle.id} cycle ${circle.currentCycle}`);
     } catch (err) {
       console.error(`[scheduler] Failed to enqueue payout for circle ${circle.id}:`, err);
+    }
+  }
+}
+
+/**
+ * Apply reputation decay for inactive members (issue #441).
+ * This should be called by a cron job nightly.
+ */
+export async function applyReputationDecay(): Promise<void> {
+  try {
+    await withCronLock("applyReputationDecay", async () => {
+      const count = await _applyReputationDecay();
+      console.warn(`[scheduler] Reputation decay applied to ${count} user(s)`);
+    });
+  } catch (err) {
+    if (err instanceof CronLockError) {
+      console.warn(`[scheduler] ${err.message}`);
+    } else {
+      throw err;
     }
   }
 }
