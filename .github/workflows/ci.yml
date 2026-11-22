@@ -97,6 +97,11 @@ jobs:
       - name: Run migration upgrade tests
         run: npm test -- --testPathPattern=migration-upgrade --forceExit
 
+      - name: Roll back last 3 migrations and re-apply
+        run: |
+          npm run migrate -- --rollback 3
+          npm run migrate
+
   key-signing-policy:
     name: Key Signing Policy (#111)
     runs-on: ubuntu-latest

@@ -40,7 +40,15 @@ export async function POST(req: NextRequest) {
     serverConfig.paystack.secretKey
   );
   if (!sigResult.valid) {
-    logger.warn({ reason: sigResult.reason }, "Invalid Paystack webhook signature");
+    logger.warn(
+      {
+        securityAudit: true,
+        event: "PAYSTACK_WEBHOOK_INVALID_SIGNATURE",
+        reason: sigResult.reason,
+        ip: req.headers.get("x-forwarded-for") ?? undefined,
+      },
+      "Invalid Paystack webhook signature"
+    );
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
