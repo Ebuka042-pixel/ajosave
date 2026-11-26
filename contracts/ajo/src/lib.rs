@@ -215,6 +215,17 @@ impl MemberStats {
     }
 }
 
+/// Typed per-member view returned by `get_member_state` (issue #465).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MemberState {
+    pub joined: bool,
+    pub contributions_paid: u32,
+    pub payout_received: bool,
+    pub suspended: bool,
+    pub missed_cycles: u32,
+}
+
 // ─── Contract ─────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -825,6 +836,13 @@ impl AjoContract {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
 
+        // Traps if no code entry exists for this hash (WASM not uploaded).
+        env.deployer().extend_ttl_for_code(
+            new_wasm_hash.clone(),
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+
         let effective_at = env.ledger().timestamp() + UPGRADE_TIMELOCK_SECS;
         env.storage().instance().set(&DataKey::PendingUpgradeHash, &new_wasm_hash);
         env.storage().instance().set(&DataKey::PendingUpgradeTime, &effective_at);
@@ -833,6 +851,7 @@ impl AjoContract {
             (Symbol::new(&env, "upgrade_proposed"),),
             (new_wasm_hash, effective_at),
         );
+        Ok(())
     }
 
     /// Cancel a pending upgrade proposal. Admin-only. No-op if none pending.
