@@ -6,7 +6,8 @@ import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { QUERY_KEYS, STALE_TIMES } from "@/lib/queryKeys";
 import type { CircleMessage, ReactionCount, ReactionEmoji } from "@/types";
 import { ALLOWED_REACTIONS } from "@/types";
-import { format } from "date-fns";
+import { formatRelativeTime } from "@/lib/date-formatting";
+import { useLocale } from "next-intl";
 import styles from "./CircleChat.module.css";
 
 interface CircleChatProps {
@@ -151,6 +152,7 @@ function ThreadPanel({
   isActiveMember,
   onClose,
 }: ThreadPanelProps) {
+  const locale = useLocale();
   const queryClient = useQueryClient();
   const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
@@ -229,7 +231,7 @@ function ThreadPanel({
                 dateTime={String(reply.createdAt)}
                 title={format(new Date(reply.createdAt), "PPpp")}
               >
-                {format(new Date(reply.createdAt), "MMM d, h:mm a")}
+                {formatRelativeTime(new Date(reply.createdAt), locale)}
               </time>
             </header>
             <p className={styles.content}>{reply.content}</p>
@@ -281,6 +283,7 @@ export function CircleChat({
   isActiveMember,
   currentUserId,
 }: CircleChatProps) {
+  const locale = useLocale();
   const queryClient = useQueryClient();
 
   const [messages, setMessages] = useState<CircleMessage[]>([]);
@@ -464,9 +467,9 @@ export function CircleChat({
                   <time
                     className={styles.timestamp}
                     dateTime={String(msg.createdAt)}
-                    title={format(new Date(msg.createdAt), "PPpp")}
+                    title={new Date(msg.createdAt).toLocaleString(locale)}
                   >
-                    {format(new Date(msg.createdAt), "MMM d, h:mm a")}
+                    {formatRelativeTime(new Date(msg.createdAt), locale)}
                   </time>
                 </header>
 

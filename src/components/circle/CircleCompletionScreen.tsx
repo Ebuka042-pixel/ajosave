@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import type { Circle, Member } from "@/types";
 import { getCurrencySymbol, SupportedCurrency } from "@/lib/currency";
-import { format } from "date-fns";
+import { formatDate } from "@/lib/date-formatting";
+import { getLocale } from "next-intl/server";
 import styles from "./CircleCompletionScreen.module.css";
 
 interface CircleCompletionScreenProps {
@@ -18,7 +19,7 @@ export function CircleCompletionScreen({ circle, members }: CircleCompletionScre
   const currencySymbol = getCurrencySymbol(circle.contributionCurrency as SupportedCurrency);
   const totalSaved = circle.contributionFiat * circle.maxMembers * circle.currentCycle;
   const duration = circle.createdAt
-    ? `${format(new Date(circle.createdAt), "MMM yyyy")} – ${format(new Date(circle.updatedAt), "MMM yyyy")}`
+    ? `${formatDate(new Date(circle.createdAt), locale, { month: "short", year: "numeric" })} – ${formatDate(new Date(circle.updatedAt), locale, { month: "short", year: "numeric" })}`
     : null;
 
   const shareText = encodeURIComponent(

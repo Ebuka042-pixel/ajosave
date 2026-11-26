@@ -7,10 +7,7 @@ import { enqueueEvent } from "@/lib/outbox";
 import type { Payout } from "@/types";
 import { randomUUID } from "crypto";
 
-// In-memory payout log — used as fallback when DB is unavailable
-const payouts: Payout[] = [];
-
-/**
+ /**
  * Process a payout cycle for a circle — idempotent.
  *
  * Idempotency guarantee: if a payout has already been recorded for the given
@@ -18,13 +15,12 @@ const payouts: Payout[] = [];
  * added in migration `1745600000000_payouts-unique-cycle.ts`), this function
  * returns the existing payout record instead of issuing a duplicate payment.
  *
- * Concurrency: an in-process mutex (`withPayoutLock`) prevents two concurrent
+ * Concurrency: a distributed Redis lock (`withPayoutLock`) prevents two concurrent
  * invocations from racing past the duplicate-check and both triggering a
- * Stellar transfer. In a multi-instance deployment the lock should be replaced
- * with a distributed Redis lock.
+ * Stellar transfer. This prevents double-payouts in multi-instance deployments.
  *
  * Flow:
- *  1. Acquire an exclusive in-process lock for this circleId.
+ *  1. Acquire an exclusive distributed Redis lock for this circleId.
  *  2. Validate circle state (exists, active, cycle in range).
  *  3. Check whether a payout for this cycle already exists in the DB.
  *     - If yes → return the existing record (idempotent response).
@@ -39,8 +35,8 @@ const payouts: Payout[] = [];
  *  - Cycle number out of range (> total members)
  *  - Duplicate payout for same cycle (idempotent — returns existing record)
  *  - Stellar payment failure (error propagated; no DB write occurs)
- *  - DB write failure after successful Stellar tx (logged; in-memory fallback)
- *  - Concurrent calls for same circle serialised via in-process lock
+ *  - DB write failure after successful Stellar tx (error re-thrown and alerted via Sentry)
+ *  - Concurrent calls for same circle serialised via distributed Redis lock
  */
 export async function processCyclePayout(
   circleId: string,
@@ -68,57 +64,37 @@ export async function processCyclePayout(
     }
 
     // ── 2. Idempotency check — look for an existing payout record ──────────
-    try {
-      const existingRow = await query<{
-        id: string;
-        circle_id: string;
-        recipient_member_id: string;
-        cycle_number: number;
-        amount_usdc: string;
-        tx_hash: string;
-        paid_at: Date;
-      }>(
-        `SELECT id, circle_id, recipient_member_id, cycle_number, amount_usdc, tx_hash, paid_at
-         FROM payouts
-         WHERE circle_id = $1 AND cycle_number = $2
-         LIMIT 1`,
-        [circleId, cycleNumber]
-      );
+    const existingRow = await query<{
+      id: string;
+      circle_id: string;
+      recipient_member_id: string;
+      cycle_number: number;
+      amount_usdc: string;
+      tx_hash: string;
+      paid_at: Date;
+    }>(
+      `SELECT id, circle_id, recipient_member_id, cycle_number, amount_usdc, tx_hash, paid_at
+       FROM payouts
+       WHERE circle_id = $1 AND cycle_number = $2
+       LIMIT 1`,
+      [circleId, cycleNumber]
+    );
 
-      if (existingRow.rowCount !== 0) {
-        const row = existingRow.rows[0];
-        console.info(
-          `[payout.service] Duplicate request — returning existing payout ` +
-            `${row.id} for circle ${circleId} cycle ${cycleNumber}`
-        );
-        return {
-          id: row.id,
-          circleId: row.circle_id,
-          recipientMemberId: row.recipient_member_id,
-          cycleNumber: row.cycle_number,
-          amountUsdc: row.amount_usdc,
-          txHash: row.tx_hash,
-          paidAt: row.paid_at,
-        };
-      }
-    } catch (dbErr) {
-      // If the DB check itself fails (e.g. DB unavailable), fall back to the
-      // in-memory log so the service remains available in dev.
-      console.warn(
-        "[payout.service] DB idempotency check failed, checking in-memory log:",
-        dbErr instanceof Error ? dbErr.message : dbErr
+    if (existingRow.rowCount !== 0) {
+      const row = existingRow.rows[0];
+      console.info(
+        `[payout.service] Duplicate request — returning existing payout ` +
+          `${row.id} for circle ${circleId} cycle ${cycleNumber}`
       );
-
-      const existingInMemory = payouts.find(
-        (p) => p.circleId === circleId && p.cycleNumber === cycleNumber
-      );
-      if (existingInMemory) {
-        console.info(
-          `[payout.service] Duplicate request — returning existing in-memory payout ` +
-            `${existingInMemory.id} for circle ${circleId} cycle ${cycleNumber}`
-        );
-        return existingInMemory;
-      }
+      return {
+        id: row.id,
+        circleId: row.circle_id,
+        recipientMemberId: row.recipient_member_id,
+        cycleNumber: row.cycle_number,
+        amountUsdc: row.amount_usdc,
+        txHash: row.tx_hash,
+        paidAt: row.paid_at,
+      };
     }
 
     // ── 3. Compute the payout amount ────────────────────────────────────────
@@ -192,20 +168,31 @@ export async function processCyclePayout(
         );
       });
     } catch (dbWriteErr) {
-      // The Stellar transfer already happened. Log the error prominently so
-      // the ops team can reconcile, but don't re-throw — the caller should
-      // treat this as a success since the member was paid.
-      console.error(
-        `[payout.service] Stellar payment succeeded (txHash: ${txHash}) ` +
-          `but DB write failed for circle ${circleId} cycle ${cycleNumber}. ` +
-          `Manual reconciliation may be required.`,
-        dbWriteErr
-      );
-      // Store in-memory as fallback so getPayoutsByCircle still returns it.
+      // Financial integrity failure: Stellar payment succeeded but DB write failed.
+      // This means the member was paid but the payout is not recorded.
+      // Alert via Sentry for immediate investigation and manual reconciliation.
+      const errorMessage = `DB write failure after successful Stellar transfer for circle ${circleId} cycle ${cycleNumber}. Tx: ${txHash}`;
+      console.error(`[payout.service] ${errorMessage}`, dbWriteErr);
+      Sentry.captureException(dbWriteErr, {
+        level: "fatal",
+        contexts: {
+          payout: {
+            circleId,
+            cycleNumber,
+            txHash,
+            amount: totalPot,
+          },
+        },
+        tags: {
+          issue: "financial-integrity",
+          type: "payout-db-write-failure",
+        },
+      });
+      
+      // Re-throw so the caller knows the operation failed.
+      // A reconciliation job (transactional outbox pattern) will retry the DB write.
+      throw new Error(errorMessage);
     }
-
-    // Always persist in-memory so in-process queries work during dev.
-    payouts.push(payout);
 
     // ── 6. Advance circle status if all members have been paid ──────────────
     if (cycleNumber >= circleMembers.length) {
@@ -219,35 +206,29 @@ export async function processCyclePayout(
 }
 
 export async function getPayoutsByCircle(circleId: string): Promise<Payout[]> {
-  // Try DB first
-  try {
-    const result = await query<{
-      id: string;
-      circle_id: string;
-      recipient_member_id: string;
-      cycle_number: number;
-      amount_usdc: string;
-      tx_hash: string;
-      paid_at: Date;
-    }>(
-      `SELECT id, circle_id, recipient_member_id, cycle_number, amount_usdc, tx_hash, paid_at
-       FROM payouts
-       WHERE circle_id = $1
-       ORDER BY cycle_number ASC`,
-      [circleId]
-    );
+  const result = await query<{
+    id: string;
+    circle_id: string;
+    recipient_member_id: string;
+    cycle_number: number;
+    amount_usdc: string;
+    tx_hash: string;
+    paid_at: Date;
+  }>(
+    `SELECT id, circle_id, recipient_member_id, cycle_number, amount_usdc, tx_hash, paid_at
+     FROM payouts
+     WHERE circle_id = $1
+     ORDER BY cycle_number ASC`,
+    [circleId]
+  );
 
-    return result.rows.map((row) => ({
-      id: row.id,
-      circleId: row.circle_id,
-      recipientMemberId: row.recipient_member_id,
-      cycleNumber: row.cycle_number,
-      amountUsdc: row.amount_usdc,
-      txHash: row.tx_hash,
-      paidAt: row.paid_at,
-    }));
-  } catch {
-    // Fall back to in-memory store
-    return payouts.filter((p) => p.circleId === circleId);
-  }
+  return result.rows.map((row) => ({
+    id: row.id,
+    circleId: row.circle_id,
+    recipientMemberId: row.recipient_member_id,
+    cycleNumber: row.cycle_number,
+    amountUsdc: row.amount_usdc,
+    txHash: row.tx_hash,
+    paidAt: row.paid_at,
+  }));
 }
