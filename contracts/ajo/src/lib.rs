@@ -688,8 +688,14 @@ impl AjoContract {
     /// Call once immediately after `upgrade()` when the new WASM introduces
     /// storage layout changes. No-op if already at `STORAGE_VERSION`.
     ///
+    /// Idempotent and resumable (issue #457): each step is gated on the stored
+    /// `StorageVersion` and records its own version as soon as it finishes,
+    /// so a re-run skips steps that already completed. `migrate` makes no
+    /// cross-contract calls, so it cannot be re-entered.
+    ///
     /// To add a future migration: bump `STORAGE_VERSION` and add an
-    /// `if from < N { … }` block below.
+    /// `if from < N { … }` block below that ends by storing `N`.
+    /// See `contracts/ajo/STORAGE_LAYOUT.md`.
     pub fn migrate(env: Env) {
         Self::require_not_paused(&env);
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
@@ -711,6 +717,7 @@ impl AjoContract {
             if !env.storage().instance().has(&DataKey::PayoutLock) {
                 env.storage().instance().set(&DataKey::PayoutLock, &false);
             }
+            env.storage().instance().set(&DataKey::StorageVersion, &1u32);
         }
 
         // ── v1 → v2 (issue #254) ──────────────────────────────────────────────
@@ -791,6 +798,7 @@ impl AjoContract {
                     env.storage().instance().remove(&DataKey::Suspended(member.clone()));
                 }
             }
+            env.storage().instance().set(&DataKey::StorageVersion, &2u32);
         }
 
         // ── v2 → v3 (issue #447) ──────────────────────────────────────────────
@@ -1108,7 +1116,11 @@ impl AjoContract {
         env.events().publish((Symbol::new(&env, "admin_transferred"),), (old_admin, pending));
     }
 
-    /// Set TTL configuration. Admin-only.
+    /// Set instance TTL configuration (issue #456). Admin-only; on mainnet the
+    /// admin is the multisig account (see `docs/multisig-admin.md`), so
+    /// `require_auth` enforces the M-of-N signer threshold.
+    ///
+    /// Both `threshold` and `extend_to` must be ≥ `MIN_TTL_EXTEND_TO`.
     pub fn set_ttl_config(env: Env, threshold: u32, extend_to: u32) {
         Self::require_not_paused(&env);
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
@@ -1117,8 +1129,8 @@ impl AjoContract {
         if extend_to < MIN_TTL_EXTEND_TO {
             panic!("extend_to below minimum ttl");
         }
-        if threshold == 0 || threshold > extend_to {
-            panic!("threshold must be in 1..=extend_to");
+        if threshold < MIN_TTL_EXTEND_TO || threshold > extend_to {
+            panic!("threshold must be in MIN_TTL_EXTEND_TO..=extend_to");
         }
         let max_ttl = env.storage().max_ttl();
         if extend_to > max_ttl {
@@ -1127,6 +1139,10 @@ impl AjoContract {
 
         env.storage().instance().set(&DataKey::TtlThreshold, &threshold);
         env.storage().instance().set(&DataKey::TtlExtendTo, &extend_to);
+        env.events().publish(
+            (Symbol::new(&env, "TtlConfigUpdated"),),
+            (admin.clone(), threshold, extend_to),
+        );
         env.events().publish(
             (Symbol::new(&env, "ttl_config_updated"),),
             (admin, threshold, extend_to),
