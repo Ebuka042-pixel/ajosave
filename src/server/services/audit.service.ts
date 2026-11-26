@@ -130,6 +130,10 @@ export async function logAuditAction(
 /**
  * Retrieves audit logs with optional filtering.
  */
+/* eslint-disable local/no-query-interpolation --
+ * getAuditLogs and getAuditLogCount build WHERE clauses from a code-controlled
+ * conditions array using only $N placeholders; all values are bound via params.
+ * This is the same safe dynamic-query pattern as pagination.ts. */
 export async function getAuditLogs(options?: {
   actorId?: string;
   action?: AuditAction;
@@ -297,6 +301,8 @@ export async function getAuditLogCount(options?: {
 
   return rows[0]?.count || 0;
 }
+
+/* eslint-enable local/no-query-interpolation */
 
 /**
  * Returns only PRIVILEGED audit events, most recent first.

@@ -3,7 +3,7 @@ import { getCircleById, getMembersByCircle, updateCircleStatus } from "./circle.
 import { queueCertificatesForCircle } from "./certificate.service";
 import { withPayoutLock } from "./payout-lock";
 import { transaction, query } from "@/lib/db";
-import * as Sentry from "@sentry/nextjs";
+import { enqueueEvent } from "@/lib/outbox";
 import type { Payout } from "@/types";
 import { randomUUID } from "crypto";
 
@@ -141,6 +141,30 @@ export async function processCyclePayout(
            SET has_received_payout = true, updated_at = $3
            WHERE id = $1 AND circle_id = $2`,
           [recipientMemberId, circleId, paidAt]
+        );
+
+        // ── Issue #424: write the outbox event inside this transaction ──────
+        // If the transaction rolls back for any reason the event is never
+        // stored, preventing phantom notifications for failed payouts.
+        // The outbox processor will pick this up within its next 10-second
+        // poll cycle and dispatch the payout.processed notification.
+        const circleForNotification = circle;
+        await enqueueEvent(
+          "circle",
+          circleId,
+          "payout.processed",
+          {
+            circleId,
+            circleName: circleForNotification.name,
+            recipientMemberId,
+            cycleNumber,
+            amountUsdc: totalPot,
+            txHash,
+            paidAt: paidAt.toISOString(),
+            // memberUserIds is populated by the notification handler from the DB.
+            memberUserIds: circleMembers.map((m) => m.id),
+          },
+          q
         );
       });
     } catch (dbWriteErr) {

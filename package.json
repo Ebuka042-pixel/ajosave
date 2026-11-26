@@ -37,7 +37,8 @@
     "contract:test": "cd contracts && cargo test",
     "contract:deploy": "ts-node scripts/deploy-contract.ts",
     "contract:verify": "ts-node scripts/verify-contract.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "lint:sql": "eslint src --ext .ts,.tsx --rule \"local/no-query-interpolation: error\""
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
