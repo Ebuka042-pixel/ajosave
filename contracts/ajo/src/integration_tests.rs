@@ -933,4 +933,66 @@ let (cycle, max, _, completed, _) = client.get_state();
         f.env.ledger().with_mut(|l| l.timestamp = f.interval + 1);
         f.client.payout();
     }
+
+    /// Issue #443: a pending upgrade freezes `propose_admin`, so a rotated-in
+    /// admin cannot be used to bypass the upgrade timelock.
+    #[test]
+    #[should_panic(expected = "admin change blocked while upgrade is pending")]
+    fn test_admin_rotation_blocked_during_pending_upgrade() {
+        use soroban_sdk::BytesN;
+
+        let f = setup_fixture(2);
+        f.client.propose_upgrade(&BytesN::from_array(&f.env, &[9u8; 32]));
+        f.client.propose_admin(&Address::generate(&f.env));
+    }
+
+    /// Issue #443: an admin proposed *before* the upgrade cannot accept the
+    /// role while the upgrade is pending.
+    #[test]
+    #[should_panic(expected = "admin change blocked while upgrade is pending")]
+    fn test_accept_admin_blocked_during_pending_upgrade() {
+        use soroban_sdk::BytesN;
+
+        let f = setup_fixture(2);
+        f.client.propose_admin(&Address::generate(&f.env));
+        f.client.propose_upgrade(&BytesN::from_array(&f.env, &[10u8; 32]));
+        f.client.accept_admin();
+    }
+
+    /// Issue #443: once the upgrade is cancelled, admin rotation works again
+    /// and the new admin must start a fresh 48h timelock.
+    #[test]
+    #[should_panic(expected = "upgrade timelock has not elapsed")]
+    fn test_admin_rotation_restarts_timelock() {
+        use soroban_sdk::BytesN;
+
+        let f = setup_fixture(2);
+        let hash = BytesN::from_array(&f.env, &[11u8; 32]);
+        f.client.propose_upgrade(&hash);
+        f.env.ledger().with_mut(|l| l.timestamp += 172_000);
+        f.client.cancel_upgrade();
+        f.client.propose_admin(&Address::generate(&f.env));
+        f.client.accept_admin();
+        f.client.propose_upgrade(&hash);
+        f.env.ledger().with_mut(|l| l.timestamp += 3_600);
+        f.client.upgrade(&hash);
+    }
+
+    /// Issue #444: `check_invariants` tracks locked funds through a cycle.
+    #[test]
+    fn test_check_invariants_balanced() {
+        let f = setup_fixture(2);
+        for m in f.members.iter() {
+            f.client.join(&m);
+        }
+        assert_eq!(f.client.check_invariants(), (0, 0, 0));
+        for m in f.members.iter() {
+            f.client.contribute(&m, &f.contribution);
+        }
+        let locked = f.contribution * 2;
+        assert_eq!(f.client.check_invariants(), (locked, locked, 0));
+        f.env.ledger().with_mut(|l| l.timestamp += f.interval + 1);
+        f.client.payout();
+        assert_eq!(f.client.check_invariants(), (0, 0, 0));
+    }
 }

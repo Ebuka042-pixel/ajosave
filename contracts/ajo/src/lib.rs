@@ -369,6 +369,10 @@ impl AjoContract {
 
         Self::update_reputation(&env, &member);
 
+        // Issue #444: the contract must always hold at least the funds owed.
+        #[cfg(debug_assertions)]
+        assert!(Self::check_invariants(env.clone()).2 >= 0, "invariant violated: locked funds shortfall");
+
         env.events().publish(
             (Symbol::new(&env, "contribution_made"),),
             (member, amount, current_cycle),
@@ -512,6 +516,10 @@ impl AjoContract {
         token_client.transfer(&env.current_contract_address(), &recipient, &pot);
 
         env.storage().instance().set(&DataKey::PayoutLock, &false);
+
+        // Issue #444: the contract must always hold at least the funds owed.
+        #[cfg(debug_assertions)]
+        assert!(Self::check_invariants(env.clone()).2 >= 0, "invariant violated: locked funds shortfall");
 
         env.events().publish(
             (Symbol::new(&env, "payout_sent"),),
@@ -789,6 +797,31 @@ impl AjoContract {
         (current_cycle, max_members, next_payout_time, completed, paused)
     }
 
+    /// Read-only invariant check (issue #444).
+    ///
+    /// Returns `(expected, actual, delta)` where `expected` is the sum of
+    /// contributions locked for the current, not-yet-paid-out cycle,
+    /// `actual` is the contract's token balance and `delta = actual - expected`.
+    /// A negative delta means funds are missing and indicates a bug or exploit.
+    pub fn check_invariants(env: Env) -> (i128, i128, i128) {
+        let token: Address = env.storage().instance().get(&DataKey::Token).expect("not initialized");
+        let actual = token::Client::new(&env, &token).balance(&env.current_contract_address());
+
+        let completed: bool = env.storage().instance().get(&DataKey::Completed).unwrap_or(false);
+        let current_cycle: u32 = env.storage().instance().get(&DataKey::CurrentCycle).unwrap_or(0);
+        let mut expected: i128 = 0;
+        if !completed && current_cycle > 0 {
+            let amount: i128 = env.storage().instance().get(&DataKey::ContributionAmount).expect("not initialized");
+            let members: Vec<Address> = env.storage().instance().get(&DataKey::Members).unwrap_or(Vec::new(&env));
+            for m in members.iter() {
+                if Self::get_temp_contribution(&env, &m, current_cycle) {
+                    expected = expected.checked_add(amount).expect("expected overflow");
+                }
+            }
+        }
+        (expected, actual, actual - expected)
+    }
+
     pub fn get_members(env: Env) -> Vec<Address> {
         env.storage().instance().get(&DataKey::Members).unwrap_or(vec![&env])
     }
@@ -830,6 +863,11 @@ impl AjoContract {
     pub fn propose_admin(env: Env, new_admin: Address) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
+        // Issue #443: admin rotation is frozen while an upgrade is pending so a
+        // new admin cannot inherit/replace a proposal and sidestep the timelock.
+        if env.storage().instance().has(&DataKey::PendingUpgradeHash) {
+            panic!("admin change blocked while upgrade is pending");
+        }
         env.storage().instance().set(&DataKey::PendingAdmin, &new_admin);
         env.events().publish((Symbol::new(&env, "admin_proposed"),), (admin, new_admin));
     }
@@ -842,6 +880,11 @@ impl AjoContract {
             .get(&DataKey::PendingAdmin)
             .expect("no pending admin");
         pending.require_auth();
+        // Issue #443: admin rotation is frozen while an upgrade is pending so a
+        // new admin cannot inherit/replace a proposal and sidestep the timelock.
+        if env.storage().instance().has(&DataKey::PendingUpgradeHash) {
+            panic!("admin change blocked while upgrade is pending");
+        }
         let old_admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         env.storage().instance().set(&DataKey::Admin, &pending);
         env.storage().instance().remove(&DataKey::PendingAdmin);
