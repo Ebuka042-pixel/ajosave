@@ -2,10 +2,13 @@ import { randomUUID } from "crypto";
 import type { Circle, Member, CircleStatus, CircleFilters } from "@/types";
 import type { CreateCircleInput } from "@/types/schemas";
 import { transaction, query } from "@/lib/db";
+import { getFiatPerUsdc } from "@/lib/fx";
 
-// Exchange rate — replace with live FX feed in production
-const NGN_PER_USDC = 1600;
-export const ngnToUsdc = (ngn: number) => (ngn / NGN_PER_USDC).toFixed(7);
+// Use live FX feed for exchange rate conversions
+export const ngnToUsdc = async (ngn: number) => {
+  const ngnPerUsdc = await getFiatPerUsdc("NGN");
+  return (ngn / ngnPerUsdc).toFixed(7);
+};
 
 // ─── Database-backed circle store (all operations use PostgreSQL) ──────────
 
