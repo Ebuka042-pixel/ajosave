@@ -11,6 +11,7 @@ import { runWithCorrelationId } from "@/lib/correlation";
 import { withSpan } from "@/lib/tracing";
 import { sanitizeBody } from "@/lib/sanitize";
 import { isAppError, internalError } from "@/lib/errors";
+import { observeHttpRequest, normalizeRoute } from "@/lib/metrics";
 import { withAuthorization } from "./authorization";
 
 export { withAuthorization, resolveUser } from "./authorization";
@@ -30,6 +31,37 @@ export function withAdminAuth(handler: Handler): Handler {
   return withAuthorization(handler, { roles: ["admin"] });
 }
 
+/**
+ * Sanitizes all string fields in the JSON request body before the handler
+ * runs, stripping HTML tags and replacing non-finite numbers with null.
+ * Uses `sanitizeBody` from `@/lib/sanitize`.
+ */
+export function withSanitizedBody(handler: Handler): Handler {
+  return async (req, ctx) => {
+    const cloned = req.clone() as NextRequest;
+    const contentType = req.headers.get("content-type") ?? "";
+    if (contentType.toLowerCase().includes("application/json")) {
+      let body: unknown;
+      try {
+        body = await cloned.json();
+      } catch {
+        body = undefined;
+      }
+      if (body !== undefined) {
+        const sanitized = sanitizeBody(body);
+        // Rebuild the request with the sanitised body so the handler sees clean data.
+        const sanitizedReq = new NextRequest(req.url, {
+          method: req.method,
+          headers: req.headers,
+          body: JSON.stringify(sanitized),
+        });
+        return handler(sanitizedReq, ctx);
+      }
+    }
+    return handler(req, ctx);
+  };
+}
+
 export function withErrorHandler(handler: Handler): Handler {
   return async (req, ctx) => {
     const correlationId =
@@ -44,6 +76,12 @@ export function withErrorHandler(handler: Handler): Handler {
       const reqLogger = logger.child({ correlationId });
       try {
         const response = await handler(req, ctx);
+        observeHttpRequest(
+          req.method,
+          normalizeRoute(pathname),
+          response.status,
+          Date.now() - start
+        );
         reqLogger.info({
           method: req.method,
           path: pathname,
@@ -72,6 +110,8 @@ export function withErrorHandler(handler: Handler): Handler {
           durationMs,
           err,
         });
+
+        observeHttpRequest(req.method, normalizeRoute(pathname), appErr.statusCode, durationMs);
 
         const body: ApiError & { details?: unknown } = appErr.toJSON();
         const res = NextResponse.json<ApiError>(body, { status: appErr.statusCode });
