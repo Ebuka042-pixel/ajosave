@@ -1,27 +1,50 @@
-import { createClient, createSentinel } from "redis";
-import { serverConfig } from "@/server/config";
+import { createClient } from "redis";
 
-type RedisClient = ReturnType<typeof createClient> | ReturnType<typeof createSentinel>;
+let client: ReturnType<typeof createClient> | null = null;
+let isConnected = false;
 
-let client: RedisClient | null = null;
+/**
+ * Get or create the Redis client.
+ * Connects lazily on first call.
+ */
+export async function getRedisClient() {
+  if (!client) {
+    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    client = createClient({ url: redisUrl });
 
-/** Parses `redis+sentinel://host1:26379,host2:26379/<master-name>`. */
-export function parseSentinelUrl(url: string) {
-  const match = /^redis\+sentinel:\/\/([^/]+)\/([^/?]+)/.exec(url);
-  if (!match) throw new Error("Invalid REDIS_SENTINEL_URL");
-  const sentinelRootNodes = match[1].split(",").map((node) => {
-    const [host, port] = node.split(":");
-    return { host, port: Number(port) || 26379 };
-  });
-  return { name: match[2], sentinelRootNodes };
+    client.on("error", (err) => {
+      console.error("[redis] Client error:", err);
+    });
+
+    try {
+      await client.connect();
+      isConnected = true;
+      console.info("[redis] Connected to Redis");
+    } catch (err) {
+      console.error("[redis] Failed to connect:", err);
+      isConnected = false;
+      throw err;
+    }
+  }
+
+  return client;
 }
 
-export async function getRedis() {
-  if (!client) {
-    const { url, sentinelUrl } = serverConfig.redis;
-    client = sentinelUrl ? createSentinel(parseSentinelUrl(sentinelUrl)) : createClient({ url });
-    client.on("error", (err) => console.error("[Redis]", err));
-    await client.connect();
+/**
+ * Check if Redis is currently connected and healthy.
+ */
+export function isRedisConnected(): boolean {
+  return isConnected;
+}
+
+/**
+ * Disconnect the Redis client (useful for cleanup).
+ */
+export async function disconnectRedis() {
+  if (client) {
+    await client.quit();
+    client = null;
+    isConnected = false;
+    console.info("[redis] Disconnected");
   }
-  return client;
 }
