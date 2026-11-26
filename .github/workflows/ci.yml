@@ -23,6 +23,7 @@ jobs:
         with: { node-version: 20, cache: npm }
       - run: npm ci
       - run: npm run lint
+      - run: npm run lint:sql
       - run: npm run type-check
       - run: npm run format:check
 
@@ -96,6 +97,11 @@ jobs:
         continue-on-error: true
       - name: Run migration upgrade tests
         run: npm test -- --testPathPattern=migration-upgrade --forceExit
+
+      - name: Roll back last 3 migrations and re-apply
+        run: |
+          npm run migrate -- --rollback 3
+          npm run migrate
 
   key-signing-policy:
     name: Key Signing Policy (#111)
