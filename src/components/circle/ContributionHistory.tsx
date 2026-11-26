@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { format } from "date-fns";
+import { useEffect, useState } from "react";
+import { formatDate } from "@/lib/date-formatting";
+import { useLocale } from "next-intl";
 import styles from "./PayoutHistory.module.css";
 import type { ContributionRow } from "@/server/services/contribution.service";
 
@@ -13,12 +14,10 @@ interface Props {
 const PAGE_SIZE = 20;
 
 export function ContributionHistory({ circleId, initialData }: Props) {
-  const [rows, setRows] = useState<ContributionRow[]>(initialData?.data ?? []);
-  const [total, setTotal] = useState<number>(initialData?.total ?? 0);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(!initialData);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const locale = useLocale();
+  const [rows, setRows] = useState<ContributionRow[] | null>(initialData?.data ?? null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState<number | null>(initialData?.total ?? null);
   const [error, setError] = useState<string | null>(null);
 
   // Track whether we've done the initial fetch when no initialData provided.
@@ -122,7 +121,7 @@ export function ContributionHistory({ circleId, initialData }: Props) {
                 <td>{r.cycleNumber}</td>
                 <td>{r.memberName}</td>
                 <td>{parseFloat(r.amountUsdc).toFixed(2)}</td>
-                <td>{format(new Date(r.createdAt), "MMM d, yyyy")}</td>
+                <td>{formatDate(new Date(r.createdAt), locale)}</td>
                 <td>{r.status}</td>
               </tr>
             ))}
