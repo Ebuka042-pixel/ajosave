@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import { query } from "@/lib/db";
 
 /**
@@ -86,7 +87,7 @@ export interface AuditLogResponse {
  * Audit logs are append-only and immutable.
  *
  * Privileged actions (see PRIVILEGED_ACTIONS) are automatically flagged
- * and emitted as console.warn so they surface in log-aggregation alerts.
+ * and emitted as logger.warn so they surface in log-aggregation alerts.
  */
 export async function logAuditAction(
   actorId: string,
@@ -102,7 +103,7 @@ export async function logAuditAction(
   const privilege: AuditPrivilege = PRIVILEGED_ACTIONS.has(action) ? "PRIVILEGED" : "STANDARD";
 
   if (privilege === "PRIVILEGED") {
-    console.warn(
+    logger.warn(
       `[audit] PRIVILEGED EVENT actor=${actorId} action=${action} target=${targetType}:${targetId}`,
       options?.details ?? {}
     );

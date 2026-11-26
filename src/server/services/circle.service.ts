@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import { randomUUID } from "crypto";
 import type { Circle, Member, CircleStatus, CircleFilters } from "@/types";
 import type { CreateCircleInput } from "@/types/schemas";

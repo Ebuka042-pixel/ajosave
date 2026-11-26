@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import { transaction } from "@/lib/db";
 import { decrypt } from "@/lib/encryption";
 import { sendEmail } from "@/lib/email";
@@ -263,7 +264,7 @@ async function purgeAuthResidue(userId: string, phone: string | null): Promise<v
   try {
     await revokeAllSessions(userId);
   } catch (err) {
-    console.error("[user-deletion] Failed to revoke sessions:", err);
+    logger.error("[user-deletion] Failed to revoke sessions:", err);
   }
 
   if (!phone || phone.startsWith("deleted-")) return;
@@ -271,7 +272,7 @@ async function purgeAuthResidue(userId: string, phone: string | null): Promise<v
     const redis = await getRedis();
     await redis.del(phoneKeyedRedisKeys(phone));
   } catch (err) {
-    console.error("[user-deletion] Failed to purge phone-keyed Redis state:", err);
+    logger.error("[user-deletion] Failed to purge phone-keyed Redis state:", err);
   }
 }
 

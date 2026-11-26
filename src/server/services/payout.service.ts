@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import { sendUsdcPayment } from "@/lib/stellar";
 import { getCircleById, getMembersByCircle, updateCircleStatus } from "./circle.service";
 import { queueCertificatesForCircle } from "./certificate.service";

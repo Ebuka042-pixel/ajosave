@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import { query } from "@/lib/db";
 import {
   notifyPayoutReminder,
@@ -19,7 +20,7 @@ export async function sendPayoutReminders(): Promise<void> {
     await withCronLock("sendPayoutReminders", _sendPayoutReminders);
   } catch (err) {
     if (err instanceof CronLockError) {
-      console.warn(`[scheduler] ${err.message}`);
+      logger.warn(`[scheduler] ${err.message}`);
     } else {
       throw err;
     }
@@ -65,7 +66,7 @@ async function _sendPayoutReminders(): Promise<void> {
       // Send reminder to recipient
       await notifyPayoutReminder(recipient.userId, circle.name, totalPot, 24);
     } catch (error) {
-      console.error(`Failed to send payout reminder for circle ${circle.id}:`, error);
+      logger.error(`Failed to send payout reminder for circle ${circle.id}:`, error);
     }
   }
 }
@@ -80,7 +81,7 @@ export async function processMissedContributions(): Promise<void> {
     await withCronLock("processMissedContributions", _processMissedContributions);
   } catch (err) {
     if (err instanceof CronLockError) {
-      console.warn(`[scheduler] ${err.message}`);
+      logger.warn(`[scheduler] ${err.message}`);
     } else {
       throw err;
     }
@@ -128,7 +129,7 @@ async function _processMissedContributions(): Promise<void> {
             [circle.id, memberId, circle.currentCycle, penaltyAmount]
           );
         } catch (err) {
-          console.error("Failed to record penalty for defaulted member:", err);
+          logger.error("Failed to record penalty for defaulted member:", err);
         }
 
         // Send notification to member and notify creator (admin)
@@ -140,11 +141,11 @@ async function _processMissedContributions(): Promise<void> {
             await notifyAdminOfDefault(creatorId, userId, circle.name, (parseFloat(circle.contributionUsdc) * (Number((circle as any).penalty_percent ?? (circle as any).penaltyPercent ?? 10) / 100)).toFixed(7));
           }
         } catch (err) {
-          console.error("Failed to notify circle admin about default:", err);
+          logger.error("Failed to notify circle admin about default:", err);
         }
       }
     } catch (error) {
-      console.error(`Failed to process missed contributions for circle ${circle.id}:`, error);
+      logger.error(`Failed to process missed contributions for circle ${circle.id}:`, error);
     }
   }
 }
@@ -166,7 +167,7 @@ export async function sendContributionReminders(): Promise<void> {
     await withCronLock("sendContributionReminders", _sendContributionReminders);
   } catch (err) {
     if (err instanceof CronLockError) {
-      console.warn(`[scheduler] ${err.message}`);
+      logger.warn(`[scheduler] ${err.message}`);
     } else {
       throw err;
     }
@@ -247,7 +248,7 @@ async function _sendContributionReminders(): Promise<void> {
           );
         }
       } catch (error) {
-        console.error(`Failed to send contribution reminders for circle ${circle.id}:`, error);
+        logger.error(`Failed to send contribution reminders for circle ${circle.id}:`, error);
       }
     }
   }
@@ -262,7 +263,7 @@ export async function processDueCycles(): Promise<void> {
     await withCronLock("processDueCycles", _processDueCycles);
   } catch (err) {
     if (err instanceof CronLockError) {
-      console.warn(`[scheduler] ${err.message}`);
+      logger.warn(`[scheduler] ${err.message}`);
     } else {
       throw err;
     }
@@ -298,14 +299,14 @@ async function _processDueCycles(): Promise<void> {
       );
 
       if (unpaid.length > 0) {
-        console.log(`[scheduler] Skipping payout for circle ${circle.id} — ${unpaid.length} member(s) have not fully paid`);
+        logger.info(`[scheduler] Skipping payout for circle ${circle.id} — ${unpaid.length} member(s) have not fully paid`);
         continue;
       }
 
       await addPayoutJob(circle.id, circle.currentCycle);
-      console.log(`[scheduler] Enqueued payout job for circle ${circle.id} cycle ${circle.currentCycle}`);
+      logger.info(`[scheduler] Enqueued payout job for circle ${circle.id} cycle ${circle.currentCycle}`);
     } catch (err) {
-      console.error(`[scheduler] Failed to enqueue payout for circle ${circle.id}:`, err);
+      logger.error(`[scheduler] Failed to enqueue payout for circle ${circle.id}:`, err);
     }
   }
 }

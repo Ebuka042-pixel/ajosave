@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import { createHash } from "crypto";
 import { query } from "@/lib/db";
 

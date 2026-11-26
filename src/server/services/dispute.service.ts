@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import { query } from "@/lib/db";
 import { randomUUID } from "crypto";
 import type { Dispute, DisputeType, DisputeStatus } from "@/types";
@@ -30,7 +31,7 @@ export async function createDispute(
   if (evidence) await recordDisputeEvent(rows[0].id, "evidence_added", memberId, evidence);
 
   notifyAdminsOfNewDispute(circleId, reason, type).catch((err) =>
-    console.error("[dispute] Admin notification failed:", err)
+    logger.error("[dispute] Admin notification failed:", err)
   );
 
   return rows[0];

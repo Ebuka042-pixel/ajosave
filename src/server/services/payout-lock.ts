@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 /**
  * Distributed Redis lock for serializing Stellar payout operations.
  *
