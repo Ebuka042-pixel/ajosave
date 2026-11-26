@@ -12,6 +12,8 @@ import { stellarBreaker, CircuitOpenError } from "@/lib/circuit-breaker";
 import { enqueueEvent } from "@/lib/outbox";
 
 const server = new Horizon.Server(serverConfig.stellar.horizonUrl);
+// Child span per Horizon HTTP call (#479)
+instrumentHttpClient(Horizon.AxiosClient, "stellar-horizon");
 const USDC = new Asset(serverConfig.usdc.assetCode, serverConfig.usdc.issuer);
 const networkPassphrase =
   serverConfig.stellar.network === "mainnet" ? Networks.PUBLIC : Networks.TESTNET;

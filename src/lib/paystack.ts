@@ -18,6 +18,9 @@ client.interceptors.request.use((config) => {
   return config;
 });
 
+// Child span per Paystack HTTP call (#479)
+instrumentHttpClient(client, "paystack");
+
 // Map our currency codes to Paystack currency codes
 const PAYSTACK_CURRENCY_MAP: Record<SupportedCurrency, string> = {
   NGN: "NGN",
