@@ -3,14 +3,6 @@ import { randomUUID } from "crypto";
 import type { Dispute, DisputeType, DisputeStatus } from "@/types";
 import { recordDisputeEvent } from "./dispute-timeline.service";
 
-const DISPUTE_SELECT = `
-  id, contribution_id as "contributionId", member_id as "memberId",
-  circle_id as "circleId", paystack_reference as "paystackReference",
-  type, reason, evidence, status,
-  resolution_notes as "resolutionNotes",
-  resolved_by as "resolvedBy", created_at as "createdAt", resolved_at as "resolvedAt"
-`;
-
 export async function createDispute(
   contributionId: string | undefined,
   memberId: string,
@@ -21,16 +13,22 @@ export async function createDispute(
   paystackReference?: string
 ): Promise<Dispute> {
   const { rows } = await query<Dispute>(
-    `INSERT INTO disputes (id, contribution_id, member_id, circle_id, paystack_reference, type, reason, evidence, status, created_at)
+    `INSERT INTO disputes
+       (id, contribution_id, member_id, circle_id, paystack_reference,
+        type, reason, evidence, status, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', NOW())
-     RETURNING ${DISPUTE_SELECT}`,
+     RETURNING
+       id, contribution_id as "contributionId", member_id as "memberId",
+       circle_id as "circleId", paystack_reference as "paystackReference",
+       type, reason, evidence, status,
+       resolution_notes as "resolutionNotes", resolved_by as "resolvedBy",
+       created_at as "createdAt", resolved_at as "resolvedAt"`,
     [randomUUID(), contributionId || null, memberId, circleId, paystackReference || null, type, reason, evidence || null]
   );
 
   await recordDisputeEvent(rows[0].id, "created", memberId, reason);
   if (evidence) await recordDisputeEvent(rows[0].id, "evidence_added", memberId, evidence);
 
-  // Notify admins asynchronously
   notifyAdminsOfNewDispute(circleId, reason, type).catch((err) =>
     console.error("[dispute] Admin notification failed:", err)
   );
@@ -64,7 +62,13 @@ async function notifyAdminsOfNewDispute(circleId: string, reason: string, type: 
 
 export async function getDisputesByCircle(circleId: string): Promise<Dispute[]> {
   const { rows } = await query<Dispute>(
-    `SELECT ${DISPUTE_SELECT} FROM disputes WHERE circle_id = $1 ORDER BY created_at DESC`,
+    `SELECT
+       id, contribution_id as "contributionId", member_id as "memberId",
+       circle_id as "circleId", paystack_reference as "paystackReference",
+       type, reason, evidence, status,
+       resolution_notes as "resolutionNotes", resolved_by as "resolvedBy",
+       created_at as "createdAt", resolved_at as "resolvedAt"
+     FROM disputes WHERE circle_id = $1 ORDER BY created_at DESC`,
     [circleId]
   );
   return rows;
@@ -72,7 +76,13 @@ export async function getDisputesByCircle(circleId: string): Promise<Dispute[]> 
 
 export async function getDisputesByMember(memberId: string): Promise<Dispute[]> {
   const { rows } = await query<Dispute>(
-    `SELECT ${DISPUTE_SELECT} FROM disputes WHERE member_id = $1 ORDER BY created_at DESC`,
+    `SELECT
+       id, contribution_id as "contributionId", member_id as "memberId",
+       circle_id as "circleId", paystack_reference as "paystackReference",
+       type, reason, evidence, status,
+       resolution_notes as "resolutionNotes", resolved_by as "resolvedBy",
+       created_at as "createdAt", resolved_at as "resolvedAt"
+     FROM disputes WHERE member_id = $1 ORDER BY created_at DESC`,
     [memberId]
   );
   return rows;
@@ -80,7 +90,13 @@ export async function getDisputesByMember(memberId: string): Promise<Dispute[]> 
 
 export async function getAllDisputes(): Promise<Dispute[]> {
   const { rows } = await query<Dispute>(
-    `SELECT ${DISPUTE_SELECT} FROM disputes ORDER BY created_at DESC`
+    `SELECT
+       id, contribution_id as "contributionId", member_id as "memberId",
+       circle_id as "circleId", paystack_reference as "paystackReference",
+       type, reason, evidence, status,
+       resolution_notes as "resolutionNotes", resolved_by as "resolvedBy",
+       created_at as "createdAt", resolved_at as "resolvedAt"
+     FROM disputes ORDER BY created_at DESC`
   );
   return rows;
 }
@@ -90,7 +106,13 @@ export async function updateDisputeStatus(
   status: DisputeStatus
 ): Promise<Dispute> {
   const { rows } = await query<Dispute>(
-    `UPDATE disputes SET status = $2 WHERE id = $1 RETURNING ${DISPUTE_SELECT}`,
+    `UPDATE disputes SET status = $2 WHERE id = $1
+     RETURNING
+       id, contribution_id as "contributionId", member_id as "memberId",
+       circle_id as "circleId", paystack_reference as "paystackReference",
+       type, reason, evidence, status,
+       resolution_notes as "resolutionNotes", resolved_by as "resolvedBy",
+       created_at as "createdAt", resolved_at as "resolvedAt"`,
     [disputeId, status]
   );
   if (rows[0]) await recordDisputeEvent(disputeId, "status_changed", null, status);
@@ -105,9 +127,14 @@ export async function resolveDispute(
 ): Promise<Dispute> {
   const { rows } = await query<Dispute>(
     `UPDATE disputes
-     SET status = $2, resolution_notes = $3, resolved_by = $4, resolved_at = NOW()
+       SET status = $2, resolution_notes = $3, resolved_by = $4, resolved_at = NOW()
      WHERE id = $1
-     RETURNING ${DISPUTE_SELECT}`,
+     RETURNING
+       id, contribution_id as "contributionId", member_id as "memberId",
+       circle_id as "circleId", paystack_reference as "paystackReference",
+       type, reason, evidence, status,
+       resolution_notes as "resolutionNotes", resolved_by as "resolvedBy",
+       created_at as "createdAt", resolved_at as "resolvedAt"`,
     [disputeId, status, resolutionNotes, resolvedBy]
   );
   if (rows[0]) await recordDisputeEvent(disputeId, "resolved", resolvedBy, `${status}: ${resolutionNotes}`);
