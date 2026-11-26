@@ -1,4 +1,5 @@
-import { transaction, query } from "@/lib/db";
+import { transaction } from "@/lib/db";
+import { decrypt } from "@/lib/encryption";
 import { sendEmail } from "@/lib/email";
 import { logAuditAction } from "./audit.service";
 import { getRedis } from "@/lib/redis";
@@ -29,7 +30,22 @@ export async function deleteUserData(userId: string): Promise<{ email: string | 
       [userId]
     );
     if (!rows[0]) throw new Error("User not found");
-    const { email, phone } = rows[0];
+    const { email: encryptedEmail, phone: encryptedPhone } = rows[0];
+
+    // Decrypt before use — phone keyed Redis state uses the plaintext number
+    let email: string | null = null;
+    let phone: string | null = null;
+    try {
+      if (encryptedEmail) email = decrypt(encryptedEmail);
+    } catch {
+      // already anonymized or plaintext; use as-is for the confirmation email
+      email = encryptedEmail;
+    }
+    try {
+      if (encryptedPhone && !encryptedPhone.startsWith("deleted-")) phone = decrypt(encryptedPhone);
+    } catch {
+      phone = encryptedPhone;
+    }
 
     // Anonymize PII — preserve id, role, reputation_score, created_at for audit
     await q(

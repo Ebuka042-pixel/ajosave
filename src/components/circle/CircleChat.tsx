@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
+import { QUERY_KEYS, STALE_TIMES } from "@/lib/queryKeys";
 import type { CircleMessage, ReactionCount, ReactionEmoji } from "@/types";
 import { ALLOWED_REACTIONS } from "@/types";
 import { format } from "date-fns";
@@ -156,9 +157,11 @@ function ThreadPanel({
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const { data: replies = [], isLoading } = useQuery<CircleMessage[]>({
-    queryKey: ["thread", circleId, parentMessage.id],
+    queryKey: QUERY_KEYS.circleThread(circleId, parentMessage.id),
     queryFn: () => fetchThread(circleId, parentMessage.id),
-    staleTime: 15_000,
+    // staleTime: 0 (STALE_TIMES.CHAT — issue #403)
+    // Thread replies are real-time updated; always refetch on focus.
+    staleTime: STALE_TIMES.CHAT,
   });
 
   useEffect(() => {
@@ -170,8 +173,8 @@ function ThreadPanel({
     onSuccess: () => {
       setInput("");
       setSendError(null);
-      queryClient.invalidateQueries({ queryKey: ["thread", circleId, parentMessage.id] });
-      queryClient.invalidateQueries({ queryKey: ["circle-chat", circleId] });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.circleThread(circleId, parentMessage.id) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.circleChat(circleId) });
     },
     onError: (err) => setSendError(err.message),
   });
@@ -296,10 +299,13 @@ export function CircleChat({
     isError,
     error: queryError,
   } = useQuery<CircleMessage[], Error>({
-    queryKey: ["circle-chat", circleId],
+    queryKey: QUERY_KEYS.circleChat(circleId),
     queryFn: () => fetchMessages(circleId, LIMIT),
     enabled: isActiveMember,
-    staleTime: 30_000,
+    // staleTime: 0 (STALE_TIMES.CHAT — issue #403)
+    // Chat is augmented by real-time SSE; always refetch on focus to heal any
+    // gap in the SSE connection. This is intentional, not an oversight.
+    staleTime: STALE_TIMES.CHAT,
   });
 
   useEffect(() => {
@@ -336,7 +342,7 @@ export function CircleChat({
     onSuccess: () => {
       setInputValue("");
       setPostError(null);
-      queryClient.invalidateQueries({ queryKey: ["circle-chat", circleId] });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.circleChat(circleId) });
     },
     onError: (err) => {
       setPostError(err.message || "Failed to send message");

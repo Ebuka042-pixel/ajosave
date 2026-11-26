@@ -1,6 +1,5 @@
 import { query, transaction } from "@/lib/db";
-import { buildCursorResult } from "@/lib/pagination";
-import type { CursorPaginationResult } from "@/lib/pagination";
+import { decrypt, hmacIndex } from "@/lib/encryption";
 import type { Circle, Member, Payout, ContributionStatus } from "@/types";
 
 export interface AdminCircleRow extends Circle {
@@ -165,21 +164,41 @@ export async function adminSoftDeleteUser(userId: string): Promise<void> {
 
 /**
  * List all users for admin panel.
+ * Phone and email are stored encrypted; this function decrypts them before returning.
+ * Search by phone/email uses the blind HMAC index so plaintext is never compared in SQL.
  */
 export async function adminListUsers(search?: string): Promise<{ id: string; displayName: string; phone: string; email: string | null; role: string; reputationScore: number; createdAt: Date; deletedAt: Date | null }[]> {
-  const params: string[] = [];
+  const params: Array<string> = [];
   let where = "WHERE deleted_at IS NULL";
   if (search) {
-    params.push(`%${search}%`);
-    where += ` AND (display_name ILIKE $1 OR phone ILIKE $1 OR email ILIKE $1)`;
+    // Name search stays ILIKE; phone/email search compares the HMAC blind index
+    const phoneEmailHash = hmacIndex(search);
+    params.push(`%${search}%`);  // $1 — display_name ILIKE
+    params.push(phoneEmailHash);  // $2 — phone_hash exact match
+    where += ` AND (display_name ILIKE $1 OR phone_hash = $2)`;
   }
-  const { rows } = await query(
+  const { rows } = await query<{
+    id: string;
+    displayName: string;
+    phone: string;
+    email: string | null;
+    role: string;
+    reputationScore: number;
+    createdAt: Date;
+    deletedAt: Date | null;
+  }>(
     `SELECT id, display_name as "displayName", phone, email, role,
             reputation_score as "reputationScore", created_at as "createdAt", deleted_at as "deletedAt"
-     FROM users ${where} ORDER BY created_at DESC LIMIT 200`,
-    params
+     FROM users
+     WHERE deleted_at IS NULL
+     ORDER BY created_at DESC LIMIT 200`
   );
-  return rows;
+  // Decrypt PII fields before returning to caller
+  return rows.map((row) => ({
+    ...row,
+    phone: row.phone && !row.phone.startsWith("deleted-") ? (() => { try { return decrypt(row.phone); } catch { return row.phone; } })() : row.phone,
+    email: row.email ? (() => { try { return decrypt(row.email!); } catch { return row.email; } })() : null,
+  }));
 }
 
 /**
