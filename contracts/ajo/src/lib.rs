@@ -184,6 +184,20 @@ pub struct MemberStatsV2 {
 /// a single persistent entry per member: 5 ledger entries → 1, and the
 /// instance entry no longer grows with suspension flags. Same values, same
 /// public API as storage v1.
+/// Snapshot of circle state for off-chain indexers (see `get_circle_state`).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct CircleState {
+    /// One of `forming`, `active`, `paused`, `completed`.
+    pub status: Symbol,
+    pub current_cycle: u32,
+    pub total_members: u32,
+    pub joined_members: u32,
+    pub next_payout_at: u64,
+    pub admin: Address,
+    pub token: Address,
+}
+
 #[contracttype]
 #[derive(Clone)]
 pub struct MemberStats {

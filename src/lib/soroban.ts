@@ -190,6 +190,34 @@ export async function deployAjoContract(): Promise<string> {
  *   checked by the slippage guard before the transaction is submitted (#462)
  * @returns The Soroban transaction hash
  */
+export interface CircleState {
+  status: "forming" | "active" | "paused" | "completed";
+  current_cycle: number;
+  total_members: number;
+  joined_members: number;
+  next_payout_at: bigint;
+  admin: string;
+  token: string;
+}
+
+/**
+ * Read the full circle state snapshot via AjoContract.get_circle_state()
+ * (simulation only — no transaction is submitted).
+ */
+export async function getCircleState(contractId: string): Promise<CircleState> {
+  const keypair = Keypair.fromSecret(serverConfig.stellar.serverSecretKey);
+  const client = await contract.Client.from({
+    contractId,
+    networkPassphrase,
+    rpcUrl: serverConfig.stellar.sorobanRpcUrl,
+    publicKey: keypair.publicKey(),
+  });
+
+  // @ts-expect-error — method generated from contract ABI at runtime
+  const assembled = await client.get_circle_state();
+  return assembled.result as CircleState;
+}
+
 export async function invokeContractPayout(contractId: string): Promise<string> {
   try {
     return await submitContractPayout(contractId);
