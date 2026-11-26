@@ -591,7 +591,11 @@ impl AjoContract {
 
         // ─── Interaction ──────────────────────────────────────────────────────
         let token_client = token::Client::new(&env, &token);
+        let balance_before = token_client.balance(&recipient);
         token_client.transfer(&env.current_contract_address(), &recipient, &pot);
+        if token_client.balance(&recipient) - balance_before != pot {
+            return Err(Error::PayoutAmountMismatch);
+        }
 
         env.storage().instance().set(&DataKey::PayoutLock, &false);
 

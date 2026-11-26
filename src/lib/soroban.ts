@@ -186,6 +186,8 @@ export async function deployAjoContract(): Promise<string> {
  * The contract handles the token transfer; the backend only triggers it.
  *
  * @param contractId - The deployed Ajo contract address for this circle
+ * @param amounts - Optional expected pot vs. amount the recipient will receive;
+ *   checked by the slippage guard before the transaction is submitted (#462)
  * @returns The Soroban transaction hash
  */
 export async function invokeContractPayout(contractId: string): Promise<string> {

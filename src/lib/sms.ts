@@ -42,3 +42,18 @@ export async function sendSms(phone: string, message: string): Promise<void> {
     api_key: serverConfig.termii.apiKey,
   });
 }
+
+export async function sendWaitlistSpotOpenedSms(
+  phone: string,
+  circleName: string,
+  joinLink: string
+): Promise<void> {
+  await client.post("/sms/send", {
+    to: phone,
+    from: serverConfig.termii.senderId,
+    sms: `A spot opened in "${circleName}"! Join now: ${joinLink}`,
+    type: "plain",
+    channel: "generic",
+    api_key: serverConfig.termii.apiKey,
+  });
+}
