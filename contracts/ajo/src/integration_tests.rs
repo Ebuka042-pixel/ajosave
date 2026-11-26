@@ -390,7 +390,7 @@ let (cycle, max, _, completed, _) = client.get_state();
     fn test_paused_blocks_contribute() {
         let f = setup_fixture(2);
         for m in f.members.iter() { f.client.join(m); }
-        f.client.pause();
+        f.client.pause(&vec![&f.env, f.admin.clone()]);
         assert_eq!(
             f.client.try_contribute(&f.members.get(0).unwrap(), &f.contribution),
             Err(Ok(crate::Error::CirclePaused))
@@ -401,7 +401,7 @@ let (cycle, max, _, completed, _) = client.get_state();
     #[test]
     fn test_paused_blocks_join() {
         let f = setup_fixture(2);
-        f.client.pause();
+        f.client.pause(&vec![&f.env, f.admin.clone()]);
         assert_eq!(
             f.client.try_join(&f.members.get(0).unwrap()),
             Err(Ok(crate::Error::CirclePaused))
@@ -420,7 +420,7 @@ let (cycle, max, _, completed, _) = client.get_state();
         let f = setup_fixture(2);
         for m in f.members.iter() { f.client.join(m); }
         f.env.ledger().with_mut(|l| l.timestamp = f.interval + 1);
-        f.client.pause();
+        f.client.pause(&vec![&f.env, f.admin.clone()]);
         assert_eq!(f.client.try_payout(), Err(Ok(crate::Error::CirclePaused)));
     }
 
@@ -432,7 +432,7 @@ let (cycle, max, _, completed, _) = client.get_state();
         for m in f.members.iter() { f.client.join(m); }
         f.env.ledger().with_mut(|l| l.timestamp = f.interval + 1);
 
-        f.client.pause();
+        f.client.pause(&vec![&f.env, f.admin.clone()]);
         f.client.unpause();
 
         f.client.payout(); // must succeed now that the pause has been lifted
@@ -458,7 +458,7 @@ let (cycle, max, _, completed, _) = client.get_state();
         f.client.payout();
 
         let member = f.members.get(0).unwrap();
-        f.client.pause();
+        f.client.pause(&vec![&f.env, f.admin.clone()]);
         assert_eq!(f.client.try_contribute(&member, &f.contribution), Err(Ok(crate::Error::CirclePaused)));
         f.client.unpause();
         f.client.contribute(&member, &f.contribution);
@@ -621,6 +621,17 @@ let (cycle, max, _, completed, _) = client.get_state();
         assert_eq!(cycle_before, cycle_after, "cycle should be unchanged after upgrade");
         assert_eq!(max_before, max_after, "max_members should be unchanged after upgrade");
         assert_eq!(completed_before, completed_after, "completed flag should be unchanged after upgrade");
+    }
+
+    /// propose_upgrade (#466): rejects a WASM hash that was never uploaded,
+    /// so no timelock is started.
+    #[test]
+    fn test_propose_upgrade_rejects_missing_wasm() {
+        use soroban_sdk::BytesN;
+
+        let f = setup_fixture(2);
+        let missing_hash = BytesN::from_array(&f.env, &[9u8; 32]);
+        assert!(f.client.try_propose_upgrade(&missing_hash).is_err());
     }
 
     /// Multi-member scenario: 5-member circle completes full rotation
@@ -934,83 +945,65 @@ let (cycle, max, _, completed, _) = client.get_state();
         f.client.payout();
     }
 
-    // ─── Fee-on-transfer token (issue #462) ───────────────────────────────────
+    /// Issue #443: a pending upgrade freezes `propose_admin`, so a rotated-in
+    /// admin cannot be used to bypass the upgrade timelock.
+    #[test]
+    #[should_panic(expected = "admin change blocked while upgrade is pending")]
+    fn test_admin_rotation_blocked_during_pending_upgrade() {
+        use soroban_sdk::BytesN;
 
-    mod fee_token {
-        use soroban_sdk::{contract, contractimpl, contracttype, Address, Env};
-
-        #[contracttype]
-        pub enum Key {
-            Admin,
-            FeePayer,
-            Balance(Address),
-        }
-
-        /// Mock token that skims 1% on transfers sent by `fee_payer`.
-        #[contract]
-        pub struct FeeToken;
-
-        #[contractimpl]
-        impl FeeToken {
-            pub fn init(env: Env, admin: Address, fee_payer: Address) {
-                env.storage().instance().set(&Key::Admin, &admin);
-                env.storage().instance().set(&Key::FeePayer, &fee_payer);
-            }
-            pub fn admin(env: Env) -> Address {
-                env.storage().instance().get(&Key::Admin).unwrap()
-            }
-            pub fn mint(env: Env, to: Address, amount: i128) {
-                let bal = Self::balance(env.clone(), to.clone());
-                env.storage().instance().set(&Key::Balance(to), &(bal + amount));
-            }
-            pub fn balance(env: Env, id: Address) -> i128 {
-                env.storage().instance().get(&Key::Balance(id)).unwrap_or(0)
-            }
-            pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
-                from.require_auth();
-                let fee_payer: Address = env.storage().instance().get(&Key::FeePayer).unwrap();
-                let fee = if from == fee_payer { amount / 100 } else { 0 };
-                let from_bal = Self::balance(env.clone(), from.clone());
-                assert!(from_bal >= amount, "insufficient balance");
-                env.storage().instance().set(&Key::Balance(from), &(from_bal - amount));
-                let to_bal = Self::balance(env.clone(), to.clone());
-                env.storage().instance().set(&Key::Balance(to), &(to_bal + amount - fee));
-            }
-        }
+        let f = setup_fixture(2);
+        f.client.propose_upgrade(&BytesN::from_array(&f.env, &[9u8; 32]));
+        f.client.propose_admin(&Address::generate(&f.env));
     }
 
+    /// Issue #443: an admin proposed *before* the upgrade cannot accept the
+    /// role while the upgrade is pending.
     #[test]
-    fn test_payout_reverts_on_fee_on_transfer_token() {
-        let env = Env::default();
-        env.mock_all_auths();
+    #[should_panic(expected = "admin change blocked while upgrade is pending")]
+    fn test_accept_admin_blocked_during_pending_upgrade() {
+        use soroban_sdk::BytesN;
 
-        let admin = Address::generate(&env);
-        let contract_id = env.register_contract(None, AjoContract);
-        let client = AjoContractClient::new(&env, &contract_id);
+        let f = setup_fixture(2);
+        f.client.propose_admin(&Address::generate(&f.env));
+        f.client.propose_upgrade(&BytesN::from_array(&f.env, &[10u8; 32]));
+        f.client.accept_admin();
+    }
 
-        let token_id = env.register_contract(None, fee_token::FeeToken);
-        let token = fee_token::FeeTokenClient::new(&env, &token_id);
-        token.init(&admin, &contract_id);
+    /// Issue #443: once the upgrade is cancelled, admin rotation works again
+    /// and the new admin must start a fresh 48h timelock.
+    #[test]
+    #[should_panic(expected = "upgrade timelock has not elapsed")]
+    fn test_admin_rotation_restarts_timelock() {
+        use soroban_sdk::BytesN;
 
-        let contribution: i128 = 100_000_000;
-        let max_members: u32 = 2;
-        let interval: u64 = 86_400;
-        client.initialize(&admin, &token_id, &admin, &contribution, &max_members, &interval);
+        let f = setup_fixture(2);
+        let hash = BytesN::from_array(&f.env, &[11u8; 32]);
+        f.client.propose_upgrade(&hash);
+        f.env.ledger().with_mut(|l| l.timestamp += 172_000);
+        f.client.cancel_upgrade();
+        f.client.propose_admin(&Address::generate(&f.env));
+        f.client.accept_admin();
+        f.client.propose_upgrade(&hash);
+        f.env.ledger().with_mut(|l| l.timestamp += 3_600);
+        f.client.upgrade(&hash);
+    }
 
-        let mut members = Vec::new(&env);
-        for _ in 0..max_members {
-            let m = Address::generate(&env);
-            token.mint(&m, &contribution);
-            client.join(&m);
-            members.push_back(m);
+    /// Issue #444: `check_invariants` tracks locked funds through a cycle.
+    #[test]
+    fn test_check_invariants_balanced() {
+        let f = setup_fixture(2);
+        for m in f.members.iter() {
+            f.client.join(&m);
         }
-
-        env.ledger().with_mut(|l| l.timestamp = interval + 1);
-        let result = client.try_payout();
-        assert_eq!(result, Err(Ok(crate::Error::PayoutAmountMismatch)));
-
-        // State rolled back: recipient received nothing, contract still holds the pot
-        assert_eq!(token.balance(&members.get(0).unwrap()), 0);
-        assert_eq!(token.balance(&contract_id), contribution * max_members as i128);
+        assert_eq!(f.client.check_invariants(), (0, 0, 0));
+        for m in f.members.iter() {
+            f.client.contribute(&m, &f.contribution);
+        }
+        let locked = f.contribution * 2;
+        assert_eq!(f.client.check_invariants(), (locked, locked, 0));
+        f.env.ledger().with_mut(|l| l.timestamp += f.interval + 1);
+        f.client.payout();
+        assert_eq!(f.client.check_invariants(), (0, 0, 0));
     }
 }

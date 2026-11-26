@@ -1,4 +1,5 @@
-import { query, transaction } from "@/lib/db";
+import logger from "@/lib/logger";
+import { query } from "@/lib/db";
 import { getCircleById } from "./circle.service";
 import { notifyWaitlistSpotOpened } from "./notification.service";
 
