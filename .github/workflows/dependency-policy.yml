@@ -1,12 +1,5 @@
 name: Dependency Security Policy
 
-# Enforces the dependency security policy defined in
-# docs/DEPENDENCY_SECURITY_POLICY.md (#107).
-#
-# Runs on every PR and push to main / develop.
-# Policy: https://github.com/jones43r/ajosave/blob/main/docs/DEPENDENCY_SECURITY_POLICY.md
-# npm: critical advisories block merge; high advisories open a tracking issue.
-
 on:
   push:
     branches: [main, develop]
@@ -225,6 +218,38 @@ jobs:
           name: cargo-audit-report
           path: cargo-audit.json
           retention-days: 30
+
+  # ── Cargo deny (license & duplicate checks) ─────────────────────────────────
+  cargo-deny-check:
+    name: Cargo Deny (licenses & duplicates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contracts
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Run cargo-deny check
+        working-directory: contracts
+        run: cargo deny check
+
+      - name: Post PR comment with cargo-deny results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+              body: `### ✅ Cargo Deny\n✅ License and duplicate dependency checks passed.`,
+            });
 
   # ── Actions pin check ──────────────────────────────────────────────────────
   actions-pin-check:
